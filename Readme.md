@@ -125,3 +125,204 @@ Auth-Core integrates with Passport.js to support multiple third-party login stra
 * Routes use composable middlewares and authentication handlers.
 * Token and cookie behavior are controlled entirely by configuration.
 * OAuth strategies are plugged in without needing code changes in the core library.
+
+---
+
+## Installation
+
+```bash
+npm install auth-core
+```
+
+## Usage Guide
+
+### Initializing Auth-Core
+
+First, initialize Auth-Core with your configuration:
+
+```javascript
+import { initializeAuth } from 'auth-core';
+
+// Initialize with your configuration
+initializeAuth({
+  // JWT configuration
+  jwt: {
+    secret: process.env.JWT_SECRET,
+    expiresIn: '7d', // Token expiration time
+    cookie: {
+      enabled: true, // Set to false if you don't want to use cookies
+      options: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      }
+    },
+    // Define what goes into your JWT token
+    generateTokenPayload: (user) => ({
+      id: user.id,
+      email: user.email,
+      role: user.role
+    })
+  },
+  
+  // Define what user data is returned to the client
+  serializeUser: (user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role
+  }),
+  
+  // Lookup function to find users by identifier
+  findUser: async (identifier, context) => {
+    // Your database lookup logic here
+    // Example using a hypothetical User model:
+    if (context?.strategy === 'emailPassword') {
+      return await YourUserModel.findOne({ email: identifier });
+    } else if (context?.strategy === 'phoneOtp') {
+      return await YourUserModel.findOne({ phone: identifier });
+    }
+    return null;
+  },
+  
+  // For OTP authentication
+  onOtpRequest: async (phone, otp) => {
+    // Your SMS sending logic here
+    await YourSmsService.send(phone, `Your verification code is: ${otp}`);
+  },
+  
+  verifyOtp: async (phone, otp) => {
+    // Your OTP verification logic here
+    return await YourOtpModel.verify(phone, otp);
+  },
+  
+  // For OAuth authentication
+  oauthCallbackHandler: async (profile, provider) => {
+    // Your OAuth user creation/lookup logic
+    let user = await YourUserModel.findOne({ 
+      [`oauth.${provider}.id`]: profile.id 
+    });
+    
+    if (!user) {
+      // Create new user if not found
+      user = await YourUserModel.create({
+        name: profile.displayName,
+        email: profile.emails[0].value,
+        oauth: {
+          [provider]: {
+            id: profile.id,
+            data: profile
+          }
+        }
+      });
+    }
+    
+    return user;
+  }
+});
+```
+
+### Using Authentication Middleware
+
+Protect your routes with the authentication middleware:
+
+```javascript
+import express from 'express';
+import { authMiddleware } from 'auth-core';
+
+const app = express();
+
+// Route protected with authentication - only attaches user
+app.get('/profile', 
+  authMiddleware({ include: ['user'] }),
+  (req, res) => {
+    res.json(req.user);
+  }
+);
+
+// Route with user and role information
+app.get('/admin-dashboard', 
+  authMiddleware({ include: ['user', 'role'] }),
+  (req, res) => {
+    if (req.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    res.json({ message: 'Admin dashboard data' });
+  }
+);
+
+// Route with user, role, and organization information
+app.get('/org-data', 
+  authMiddleware({ include: ['user', 'role', 'org'] }),
+  (req, res) => {
+    res.json({ 
+      user: req.user,
+      role: req.role,
+      organization: req.org
+    });
+  }
+);
+```
+
+### Phone OTP Authentication
+
+To implement phone number with OTP verification:
+
+```javascript
+import express from 'express';
+import { sendOtp, verifyOtp } from 'auth-core';
+
+const app = express();
+app.use(express.json());
+
+// Request OTP
+app.post('/auth/otp/request', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    await sendOtp(phone);
+    res.json({ message: 'OTP sent successfully' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Verify OTP and login
+app.post('/auth/otp/verify', async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+    const { user, token } = await verifyOtp(phone, otp);
+    res.json({ user, token });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+```
+
+### Extending With Custom Middleware
+
+You can create your own middleware to attach additional data:
+
+```javascript
+// Create a custom middleware in your application
+const attachCustomData = (req, res, next) => {
+  if (req.user) {
+    // Fetch additional data based on the user
+    req.customData = { /* your custom data */ };
+  }
+  next();
+};
+
+// Use it after auth middleware
+app.get('/custom-route',
+  authMiddleware({ include: ['user'] }), 
+  attachCustomData,
+  (req, res) => {
+    res.json({
+      user: req.user,
+      customData: req.customData
+    });
+  }
+);
+```
+
+For more detailed information and advanced use cases, please refer to the API documentation.

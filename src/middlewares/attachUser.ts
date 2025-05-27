@@ -20,6 +20,7 @@ export const attachUser = async (req: Request, res: Response, next: NextFunction
     }
 
     // Decode token
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const decoded = jwt.verify(token, config.jwt.secret as string) as any;
 
     // Fetch full user (optional)
@@ -34,7 +35,7 @@ export const attachUser = async (req: Request, res: Response, next: NextFunction
     }
 
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 };

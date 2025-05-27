@@ -37,7 +37,7 @@ export interface AuthConfig {
 
   verifyOtp?: (phone: string, otp: string) => Promise<boolean>;
 
-  verifyPassword?: (password: string, hashedPassword: string) => Promise<boolean>;
+  verifyPassword?: (email: string, password: string) => Promise<boolean>;
 
   oauthCallbackHandler?: (profile: OAuthProfile, provider: string) => Promise<User | null>;
 }
